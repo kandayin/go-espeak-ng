@@ -1,13 +1,13 @@
 // Copyright 2020 djangulo. All rights reserved. Use of this source code is
 // governed by an MIT license that can be found in the LICENSE file.
 
-//Package native has espeak native C implementation (called by Go)
+//Package native has espeak-ng native C implementation (called by Go)
 // to synthesize audio or write to .wav.
 package native
 
 /*
-#cgo CFLAGS: -I/usr/include/espeak
-#cgo LDFLAGS: -l portaudio -l espeak
+#cgo CFLAGS: -I/usr/include/espeak-ng
+#cgo LDFLAGS: -lespeak-ng
 #include <stdio.h>
 #include <string.h>
 #include <malloc.h>
@@ -40,7 +40,7 @@ int callback(short *wav, int numsamples, espeak_EVENT *events)
 	return(0);
 }
 ////////////////////////////////////////////////////////////////////////////
-// Static functions, sourced from espeak
+// Static functions, sourced from espeak-ng
 ////////////////////////////////////////////////////////////////////////////
 // Write4Bytes: Write 4 bytes to a file, least significant first.
 static void Write4Bytes(FILE *f, int value)

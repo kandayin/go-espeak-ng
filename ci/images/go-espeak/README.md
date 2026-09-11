@@ -1,3 +1,3 @@
 # `go-espeak` docker image
 
-Image built from alpine:latest with `go` and `espeak`.
+Image built from debian:buster-slim with `go` and `espeak-ng`.

@@ -3,7 +3,7 @@
 
 # go-espeak-ng
 
-Golang C bindings for the `espeak` voice synthesizer.
+Golang C bindings for the `espeak-ng` voice synthesizer.
 
 There is a live demo of its usage at <a rel="noopener noreferrer" target="_blank" href="https://go-espeak-demo.djangulo.com">https://go-espeak-demo.djangulo.com</a>, source code in [examples/demo](https://github.com/kandayin/go-espeak-ng/tree/main/examples/demo).
 
@@ -49,7 +49,7 @@ import (
 
 func main() {
 
-	// need to call terminate so espeak can clean itself out
+	// need to call terminate so espeak-ng can clean itself out
 	defer espeak.Terminate()
 	params := espeak.NewParameters().WithDir(".")
 	espeak.TextToSpeech(

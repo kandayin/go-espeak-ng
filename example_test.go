@@ -13,15 +13,15 @@ func ExampleTextToSpeech() {
 // ExampleTextToSpeech_second show usage with a non-default voice.
 func ExampleTextToSpeech_customVoice() {
 	// output of
-	//     ~$ espeak --voices=el
+	//     ~$ espeak-ng --voices=el
 	//     Pty Language Age/Gender VoiceName          File          Other Languages
-	//     5  el             M  greek                europe/el
+	//     5  el             M  Greek                grk/el
 	//     7  el             M  greek-mbrola-1       mb/mb-gr2
 	greek := espeak.Voice{
 		Languages:  "el",
 		Gender:     espeak.Male,
-		Name:       "greek",
-		Identifier: "europe/el",
+		Name:       "Greek",
+		Identifier: "grk/el",
 	}
 	espeak.TextToSpeech("Γειά σου Κόσμε!", &greek, "play", nil)
 }

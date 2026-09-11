@@ -1,14 +1,14 @@
 // Copyright 2020 djangulo. All rights reserved. Use of this source code is
 // governed by an MIT license that can be found in the LICENSE file.
 
-//Package espeak implements C bindings for the Espeak voice synthesizer.
-// It also provides Go wrappers around espeak's api that allow for
+//Package espeak implements C bindings for the espeak-ng voice synthesizer.
+// It also provides Go wrappers around espeak-ng's api that allow for
 // creation of custom text synthesis functions.
 package espeak
 
 /*
-#cgo CFLAGS: -I/usr/include/espeak
-#cgo LDFLAGS: -lportaudio -lespeak
+#cgo CFLAGS: -I/usr/include/espeak-ng
+#cgo LDFLAGS: -lespeak-ng
 #include <stdio.h>
 #include <string.h>
 #include <malloc.h>
@@ -97,7 +97,7 @@ func (g Gender) MarshalJSON() ([]byte, error) {
 }
 
 // Voice analogous to C.espeak_VOICE. New voices can be created as long as
-// they're listed in "espeak --voices=<lang>".
+// they're listed in "espeak-ng --voices=<lang>".
 type Voice struct {
 	Name       string `json:"name,omitempty"`
 	Languages  string `json:"languages,omitempty"`
@@ -110,10 +110,10 @@ type Voice struct {
 // Default voices.
 var (
 	DefaultVoice = ENUSMale
-	ENUSMale     = &Voice{Name: "english-us", Languages: "en-us", Identifier: "en-us", Gender: Male}
-	ESSpainMale  = &Voice{Name: "spanish", Languages: "es", Identifier: "europe/es", Gender: Male}
-	ESLatinMale  = &Voice{Name: "spanish-latin-am", Languages: "es-la", Identifier: "es-la", Gender: Male}
-	FRFranceMale = &Voice{Name: "french", Languages: "fr-fr", Identifier: "fr", Gender: Male}
+	ENUSMale     = &Voice{Name: "English (America)", Languages: "en-us", Identifier: "gmw/en-US", Gender: Male}
+	ESSpainMale  = &Voice{Name: "Spanish (Spain)", Languages: "es", Identifier: "roa/es", Gender: Male}
+	ESLatinMale  = &Voice{Name: "Spanish (Latin America)", Languages: "es-419", Identifier: "roa/es-419", Gender: Male}
+	FRFranceMale = &Voice{Name: "French (France)", Languages: "fr-fr", Identifier: "roa/fr", Gender: Male}
 )
 
 func (v *Voice) String() string {
@@ -146,7 +146,7 @@ func VoiceFromSpec(spec *Voice) (*Voice, error) {
 	return res[i], nil
 }
 
-// ListVoices reads the voice files from espeak-data/voices and returns them
+// ListVoices reads the voice files from espeak-ng-data/voices and returns them
 // in a []*Voice object. If spec is nil, all available voices are listed.
 // If spec is given, then only the voices which are compatible with the spec
 // are listed, and they are listed in preference order.
@@ -214,6 +214,9 @@ type cVoice struct {
 	gender     C.uchar
 	age        C.uchar
 	variant    C.uchar
+	xx1        C.uchar
+	score      C.int
+	spare      unsafe.Pointer
 }
 
 func (cv *cVoice) goVoice() *Voice {
@@ -318,9 +321,13 @@ type Parameters struct {
 	Pitch int
 	// Range pitch range, range 0-100. 0-monotone, 50=normal. Default 50 (normal).
 	Range int
-	// AnnouncePunctuation settings. See PunctType for details. Default None (0).
+		// AnnouncePunctuation settings. See PunctType for details. Default None (0).
+	// Note: espeak-ng no longer supports this through the library API, it is
+	// kept for backwards compatibility and currently has no effect.
 	AnnouncePunctuation PunctType
 	// AnnounceCapitals settings. See Capitals for details. Default None (0).
+	// Note: espeak-ng no longer supports this through the library API, it is
+	// kept for backwards compatibility and currently has no effect.
 	AnnounceCapitals Capitals
 	// WordGap pause between words, units of 10mS (at the default speed).
 	WordGap int
@@ -356,14 +363,6 @@ func (p *Parameters) SetVoiceParams() error {
 		return err
 	}
 	ee = C.espeak_SetParameter(C.espeakRANGE, C.int(p.Range), C.int(0))
-	if err := ErrFromCode(ee); err != nil {
-		return err
-	}
-	ee = C.espeak_SetParameter(C.espeakPUNCTUATION, C.int(2), C.int(0))
-	if err := ErrFromCode(ee); err != nil {
-		return err
-	}
-	ee = C.espeak_SetParameter(C.espeakCAPITALS, C.int(p.AnnounceCapitals), C.int(0))
 	if err := ErrFromCode(ee); err != nil {
 		return err
 	}
@@ -562,7 +561,7 @@ var (
 //   - bufferLength length in mS of sound buffers passed to the SynthCallback
 //     function. If 0 gives a default of 200mS. Only used for
 //     output==Retrieval and output == Synchronous.
-//   - path: the directory which contains the espeak-data directory.
+//   - path: the directory which contains the espeak-ng-data directory.
 //   - options: InitOption to use.
 func Init(
 	output AudioOutput,

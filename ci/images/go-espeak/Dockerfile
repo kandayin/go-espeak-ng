@@ -11,11 +11,9 @@ RUN apt-get update \
     automake \
     make \
     libtool \
-    libespeak-dev \
+    libespeak-ng-dev \
     pkg-config \
     libpulse-dev \
-    libsonic-dev \
-    libpcaudio-dev \
     libportaudio2 \
     portaudio19-dev \
     ca-certificates \
@@ -27,8 +25,8 @@ RUN apt-get update \
 	&& rm -rf /var/lib/apt/lists/*
 
 WORKDIR /tmp
-RUN git clone https://github.com/espeak-ng/espeak-ng.git espeak \
-    && cd espeak \
+RUN git clone https://github.com/espeak-ng/espeak-ng.git espeak-ng \
+    && cd espeak-ng \
     && ./autogen.sh \
     && ./configure \
         --prefix=/usr \
@@ -37,7 +35,7 @@ RUN git clone https://github.com/espeak-ng/espeak-ng.git espeak \
         --with-extdict-zhy \
     && make \
     && make install \
-    && rm -rf /tmp/espeak
+    && rm -rf /tmp/espeak-ng
 
 ENV GOLANG_VERSION 1.15.3
 # RUN mkdir /lib64 \

@@ -1,8 +1,8 @@
 package main
 
 /*
-#cgo CFLAGS: -I/usr/include/espeak
-#cgo LDFLAGS: -lportaudio -lespeak
+#cgo CFLAGS: -I/usr/include/espeak-ng
+#cgo LDFLAGS: -lespeak-ng
 #include <stdio.h>
 #include <string.h>
 #include <malloc.h>
