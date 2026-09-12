@@ -394,13 +394,14 @@ var DefaultParameters = &Parameters{
 	Dir:                 os.TempDir(),
 }
 
-// NewParameters returns *DefaultParameters modified by opts.
+// NewParameters returns a copy of DefaultParameters modified by opts. The
+// copy is owned by the caller; DefaultParameters is never mutated.
 func NewParameters(opts ...Option) *Parameters {
-	p := DefaultParameters
+	p := *DefaultParameters
 	for _, opt := range opts {
-		opt(p)
+		opt(&p)
 	}
-	return p
+	return &p
 }
 
 // WithRate rate.
@@ -550,6 +551,7 @@ func (a AudioOutput) toC() C.espeak_AUDIO_OUTPUT {
 
 var (
 	initialized bool
+	initMu      sync.Mutex
 	useMbrola   bool
 	sampleRate  int32
 )
@@ -563,6 +565,10 @@ var (
 //     output==Retrieval and output == Synchronous.
 //   - path: the directory which contains the espeak-ng-data directory.
 //   - options: InitOption to use.
+// Init is idempotent: the underlying engine is initialized at most once per
+// process (until Terminate is called), and the parameters of the first call
+// take effect. Subsequent calls are no-ops with respect to the engine, but
+// each call still returns a fresh data-block id.
 func Init(
 	output AudioOutput,
 	bufferLength int,
@@ -573,29 +579,34 @@ func Init(
 		bufferLength = 200
 	}
 
+	initMu.Lock()
+	defer initMu.Unlock()
+
 	if options&UseMbrola == UseMbrola {
 		useMbrola = true
 	}
-	var cPath *C.char
-	if path != nil {
-		cPath = C.CString(*path)
-		defer C.free(unsafe.Pointer(cPath))
-	}
-	sr := C.espeak_Initialize(
-		output.toC(),
-		C.int(bufferLength),
-		cPath,
-		C.int(options),
-	)
-	if int(sr) == -1 {
-		return 0, 0, EErrInternal
+	if !initialized {
+		var cPath *C.char
+		if path != nil {
+			cPath = C.CString(*path)
+			defer C.free(unsafe.Pointer(cPath))
+		}
+		sr := C.espeak_Initialize(
+			output.toC(),
+			C.int(bufferLength),
+			cPath,
+			C.int(options),
+		)
+		if int(sr) == -1 {
+			return 0, 0, EErrInternal
+		}
+		sampleRate = int32(sr)
+		initialized = true
 	}
 	id, _, err := registry.newData()
 	if err != nil {
 		return 0, 0, err
 	}
-	sampleRate = int32(sr)
-	initialized = true
 	return id, sampleRate, nil
 }
 
@@ -607,12 +618,16 @@ func SetSynthCallback(ptr unsafe.Pointer) {
 }
 
 // Terminate closes the espeak connection. It's up to the caller to call this
-// and terminate the function.
+// and terminate the function. After a successful Terminate, Init may be
+// called again.
 func Terminate() error {
+	initMu.Lock()
+	defer initMu.Unlock()
 	ee := C.espeak_Terminate()
 	if err := ErrFromCode(ee); err != nil {
 		return err
 	}
+	initialized = false
 	return nil
 }
 
