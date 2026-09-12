@@ -24,7 +24,7 @@ import (
 	"fmt"
 	"unsafe"
 
-	"github.com/djangulo/go-espeak"
+	"github.com/kandayin/go-espeak-ng"
 )
 
 func main() {

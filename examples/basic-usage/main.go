@@ -5,7 +5,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/djangulo/go-espeak"
+	"github.com/kandayin/go-espeak-ng"
 )
 
 func main() {

@@ -1,3 +1,3 @@
-module github.com/djangulo/go-espeak
+module github.com/kandayin/go-espeak-ng
 
-go 1.15
+go 1.26

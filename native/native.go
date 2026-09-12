@@ -99,7 +99,7 @@ import (
 	"strings"
 	"unsafe"
 
-	"github.com/djangulo/go-espeak"
+	"github.com/kandayin/go-espeak-ng"
 )
 
 // TextToSpeech reproduces text, using voice, modified by params.

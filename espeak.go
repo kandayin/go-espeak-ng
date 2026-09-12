@@ -38,7 +38,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/djangulo/go-espeak/wav"
+	"github.com/kandayin/go-espeak-ng/wav"
 )
 
 func init() {

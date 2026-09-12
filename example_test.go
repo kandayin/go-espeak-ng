@@ -2,7 +2,7 @@
 // governed by an MIT license that can be found in the LICENSE file..
 package espeak_test
 
-import "github.com/djangulo/go-espeak"
+import "github.com/kandayin/go-espeak-ng"
 
 func ExampleTextToSpeech() {
 	espeak.TextToSpeech("Hello world!", espeak.DefaultVoice, "play", nil)

@@ -8,7 +8,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/djangulo/go-espeak"
+	"github.com/kandayin/go-espeak-ng"
 )
 
 func TestTextToSpeech(t *testing.T) {

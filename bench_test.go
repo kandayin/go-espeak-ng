@@ -7,8 +7,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/djangulo/go-espeak"
-	"github.com/djangulo/go-espeak/native"
+	"github.com/kandayin/go-espeak-ng"
+	"github.com/kandayin/go-espeak-ng/native"
 )
 
 func BenchmarkTextToSpeech(b *testing.B) {
