@@ -137,6 +137,67 @@ func TestInitIdempotent(t *testing.T) {
 	})
 }
 
+// TestListVoicesRepeated regression test for the double free: espeak_ListVoices
+// returns the engine's static voice table, which the old code freed; the next
+// call then realloc'd freed memory and aborted under glibc.
+func TestListVoicesRepeated(t *testing.T) {
+	if _, _, err := Init(Synchronous, 200, nil, PhonemeEvents); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	for i := 1; i <= 3; i++ {
+		voices, err := ListVoices(nil)
+		if err != nil {
+			t.Fatalf("ListVoices (call %d) failed: %v", i, err)
+		}
+		if len(voices) == 0 {
+			t.Fatalf("ListVoices (call %d) returned no voices", i)
+		}
+		if _, err := ListVoices(ENUSMale); err != nil {
+			t.Fatalf("ListVoices(spec) (call %d) failed: %v", i, err)
+		}
+	}
+}
+
+// TestConcurrentListVoicesAndTextToSpeech hammers the API from multiple
+// goroutines; run with -race. All C calls must be serialized by apiMu.
+func TestConcurrentListVoicesAndTextToSpeech(t *testing.T) {
+	if _, _, err := Init(Synchronous, 200, nil, PhonemeEvents); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	tmp, err := ioutil.TempDir("", "go-espeak-concurrent-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+	p := NewParameters(WithDir(tmp))
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if _, err := ListVoices(nil); err != nil {
+				t.Errorf("ListVoices failed: %v", err)
+				return
+			}
+			samples, err := TextToSpeech(
+				fmt.Sprintf("concurrent check %d", i),
+				nil,
+				fmt.Sprintf("conc-%d", i),
+				p,
+			)
+			if err != nil {
+				t.Errorf("TextToSpeech failed: %v", err)
+				return
+			}
+			if samples == 0 {
+				t.Error("TextToSpeech wrote 0 samples")
+			}
+		}(i)
+	}
+	wg.Wait()
+}
+
 func TestEnsureWavSuffix(t *testing.T) {
 	for _, tt := range []struct {
 		in, want string

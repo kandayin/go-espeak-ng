@@ -152,16 +152,34 @@ func VoiceFromSpec(spec *Voice) (*Voice, error) {
 // are listed, and they are listed in preference order.
 // Init must have been called.
 func ListVoices(spec *Voice) (voices []*Voice, err error) {
+	apiMu.Lock()
+	defer apiMu.Unlock()
+	return listVoicesLocked(spec)
+}
+
+// listVoicesLocked is the C-touching body of ListVoices; the caller must
+// hold apiMu.
+func listVoicesLocked(spec *Voice) (voices []*Voice, err error) {
 	if !initialized {
 		return nil, ErrNotInitialized
 	}
-	var voiceSpec *C.espeak_VOICE
+	var (
+		voiceSpec *C.espeak_VOICE
+		specC     *cVoice
+	)
 	if spec != nil {
 		voiceSpec = spec.cptr()
+		specC = (*cVoice)(unsafe.Pointer(voiceSpec))
 	}
 	// out is Ctype const espeak_VOICE ** (pointer to array)
+	//
+	// Do NOT free out: espeak_ListVoices returns espeak-ng's static voice
+	// table (realloc'd on every call); freeing it leaves a dangling static
+	// pointer and the next call reallocs freed memory.
 	out := C.espeak_ListVoices(voiceSpec)
-	defer C.free(unsafe.Pointer(out))
+	if specC != nil {
+		specC.freeCStrings()
+	}
 	// slice-ification of a C.espeak_VOICE ** into a slice
 	//     (*C.espeak_VOICE)(unsafe.Pointer(out)) gets the actual array
 	//     length is fixed at a 1000 as we don't know how many return
@@ -200,6 +218,14 @@ func (v *Voice) cptr() *C.espeak_VOICE {
 		variant:    C.uchar(int(v.Variant)),
 	}
 	return (*C.espeak_VOICE)(unsafe.Pointer(cv))
+}
+
+// freeCStrings releases the C.CString allocations made by cptr. It must be
+// called once after the consuming C call has returned.
+func (cv *cVoice) freeCStrings() {
+	C.free(unsafe.Pointer(cv.name))
+	C.free(unsafe.Pointer(cv.languages))
+	C.free(unsafe.Pointer(cv.identifier))
 }
 
 func voiceFromCptr(ptr unsafe.Pointer) *Voice {
@@ -349,6 +375,14 @@ func (p *Parameters) SetPunctuationList(chars string) {
 // SetVoiceParams calls espeak_SetParameter for each of the *Parameters
 // fields.
 func (p *Parameters) SetVoiceParams() error {
+	apiMu.Lock()
+	defer apiMu.Unlock()
+	return p.setVoiceParamsLocked()
+}
+
+// setVoiceParamsLocked is the C-touching body of SetVoiceParams; the caller
+// must hold apiMu.
+func (p *Parameters) setVoiceParamsLocked() error {
 	var ee C.espeak_ERROR
 	ee = C.espeak_SetParameter(C.espeakRATE, C.int(p.Rate), C.int(0))
 	if err := ErrFromCode(ee); err != nil {
@@ -549,9 +583,12 @@ func (a AudioOutput) toC() C.espeak_AUDIO_OUTPUT {
 	}
 }
 
+// apiMu serializes every call into the espeak C API. The espeak-ng engine is
+// process-global and not thread-safe; composite operations (TextToSpeech,
+// GenSamples) hold it across their whole C sequence.
 var (
 	initialized bool
-	initMu      sync.Mutex
+	apiMu       sync.Mutex
 	useMbrola   bool
 	sampleRate  int32
 )
@@ -575,12 +612,21 @@ func Init(
 	path *string,
 	options InitOption,
 ) (uintptr, int32, error) {
+	apiMu.Lock()
+	defer apiMu.Unlock()
+	return initLocked(output, bufferLength, path, options)
+}
+
+// initLocked is the C-touching body of Init; the caller must hold apiMu.
+func initLocked(
+	output AudioOutput,
+	bufferLength int,
+	path *string,
+	options InitOption,
+) (uintptr, int32, error) {
 	if bufferLength == 0 {
 		bufferLength = 200
 	}
-
-	initMu.Lock()
-	defer initMu.Unlock()
 
 	if options&UseMbrola == UseMbrola {
 		useMbrola = true
@@ -614,6 +660,8 @@ func Init(
 // has to be a a function of signature
 //    int (t_espeak_callback)(short*, int, espeak_EVENT*)
 func SetSynthCallback(ptr unsafe.Pointer) {
+	apiMu.Lock()
+	defer apiMu.Unlock()
 	C.espeak_SetSynthCallback((*C.t_espeak_callback)(ptr))
 }
 
@@ -621,8 +669,14 @@ func SetSynthCallback(ptr unsafe.Pointer) {
 // and terminate the function. After a successful Terminate, Init may be
 // called again.
 func Terminate() error {
-	initMu.Lock()
-	defer initMu.Unlock()
+	apiMu.Lock()
+	defer apiMu.Unlock()
+	return terminateLocked()
+}
+
+// terminateLocked is the C-touching body of Terminate; the caller must hold
+// apiMu.
+func terminateLocked() error {
 	ee := C.espeak_Terminate()
 	if err := ErrFromCode(ee); err != nil {
 		return err
@@ -633,6 +687,14 @@ func Terminate() error {
 
 // SetVoiceByName wrapper around espeak_SetVoiceByName.
 func SetVoiceByName(name string) error {
+	apiMu.Lock()
+	defer apiMu.Unlock()
+	return setVoiceByNameLocked(name)
+}
+
+// setVoiceByNameLocked is the C-touching body of SetVoiceByName; the caller
+// must hold apiMu.
+func setVoiceByNameLocked(name string) error {
 	cName := C.CString(name)
 	defer C.free(unsafe.Pointer(cName))
 	ee := C.espeak_SetVoiceByName(cName)
@@ -645,7 +707,12 @@ func SetVoiceByName(name string) error {
 // SetVoiceByProps wrapper around espeak_SetVoiceByProperties.
 // An *Voice is used to pass criteria to select a voice.
 func SetVoiceByProps(v *Voice) error {
-	ee := C.espeak_SetVoiceByProperties(v.cptr())
+	apiMu.Lock()
+	defer apiMu.Unlock()
+
+	cv := v.cptr()
+	ee := C.espeak_SetVoiceByProperties(cv)
+	(*cVoice)(unsafe.Pointer(cv)).freeCStrings()
 	if err := ErrFromCode(ee); err != nil {
 		return err
 	}
@@ -697,12 +764,30 @@ func Synth(
 	uniqueIdent *uint64,
 	userData unsafe.Pointer,
 ) error {
+	apiMu.Lock()
+	defer apiMu.Unlock()
+	return synthLocked(text, flags, startPos, endPos, posType, uniqueIdent, userData)
+}
+
+// synthLocked is the C-touching body of Synth; the caller must hold apiMu.
+func synthLocked(
+	text string,
+	flags FlagType,
+	startPos, endPos uint32,
+	posType PositionType,
+	uniqueIdent *uint64,
+	userData unsafe.Pointer,
+) error {
 	ctext := C.CString(text)
 	defer C.free(unsafe.Pointer(ctext))
 
-	var uid *C.uint
+	var (
+		uid    C.uint
+		uidPtr *C.uint
+	)
 	if uniqueIdent != nil {
-		*uid = C.uint(*uniqueIdent)
+		uid = C.uint(*uniqueIdent)
+		uidPtr = &uid
 	}
 
 	ee := C.espeak_Synth(
@@ -712,16 +797,27 @@ func Synth(
 		posType.toC(),
 		C.uint(endPos),
 		C.uint(flags),
-		uid,
+		uidPtr,
 		userData)
 	if err := ErrFromCode(ee); err != nil {
 		return err
+	}
+	if uniqueIdent != nil {
+		*uniqueIdent = uint64(uid)
 	}
 	return nil
 }
 
 // Synchronize wrapper around espeak_Synchronize.
 func Synchronize() error {
+	apiMu.Lock()
+	defer apiMu.Unlock()
+	return synchronizeLocked()
+}
+
+// synchronizeLocked is the C-touching body of Synchronize; the caller must
+// hold apiMu.
+func synchronizeLocked() error {
 	ee := C.espeak_Synchronize()
 	if err := ErrFromCode(ee); err != nil {
 		return err
@@ -733,6 +829,8 @@ func Synchronize() error {
 // output of the current text. When this function returns, the audio output is
 // fully stopped and the synthesizer is ready to synthesize a new message.
 func Cancel() error {
+	apiMu.Lock()
+	defer apiMu.Unlock()
 	ee := C.espeak_Cancel()
 	if err := ErrFromCode(ee); err != nil {
 		return err
@@ -742,6 +840,8 @@ func Cancel() error {
 
 // IsPlaying returns whether audio is being played.
 func IsPlaying() bool {
+	apiMu.Lock()
+	defer apiMu.Unlock()
 	return C.espeak_IsPlaying() == 1
 }
 
@@ -762,22 +862,24 @@ func TextToSpeech(text string, voice *Voice, outfile string, params *Parameters)
 		voice = DefaultVoice
 	}
 	// if outfile is "play" or empty, play the audio
-	// this path is simple, as pretty much only the voice is set
+	// this path is simple, as pretty much only the voice is set.
+	// The whole C sequence (through Synchronize) runs under apiMu so no
+	// other goroutine can mutate voice/synth state mid-playback.
 	if outfile == "" || outfile == "play" {
-		_, _, err := Init(Playback, -1, nil, PhonemeEvents)
-		// if the error is of type ErrAllreadyInitialized, continue
-		if err != nil && !errors.Is(err, ErrAlreadyInitialized) {
-			return 0, err
-		}
-		if err := params.SetVoiceParams(); err != nil {
-			return 0, err
-		}
+		apiMu.Lock()
+		defer apiMu.Unlock()
 
-		if err := SetVoiceByName(voice.Name); err != nil {
+		if _, _, err := initLocked(Playback, -1, nil, PhonemeEvents); err != nil {
+			return 0, err
+		}
+		if err := params.setVoiceParamsLocked(); err != nil {
+			return 0, err
+		}
+		if err := setVoiceByNameLocked(voice.Name); err != nil {
 			return 0, err
 		}
 		var uid *uint64
-		if err := Synth(
+		if err := synthLocked(
 			text,
 			CharsAuto|EndPause,
 			0,
@@ -787,7 +889,7 @@ func TextToSpeech(text string, voice *Voice, outfile string, params *Parameters)
 			unsafe.Pointer(nil)); err != nil {
 			return 0, err
 		}
-		if err := Synchronize(); err != nil {
+		if err := synchronizeLocked(); err != nil {
 			return 0, err
 		}
 		return 0, nil
@@ -830,27 +932,30 @@ func GenSamples(text string, voice *Voice, params *Parameters) ([]int16, error) 
 		voice = DefaultVoice
 	}
 
-	id, _, err := Init(Synchronous, 200, nil, PhonemeEvents)
-	// if the error is of type ErrAllreadyInitialized, continue
-	if err != nil && !errors.Is(err, ErrAlreadyInitialized) {
+	apiMu.Lock()
+	defer apiMu.Unlock()
+
+	id, _, err := initLocked(Synchronous, 200, nil, PhonemeEvents)
+	if err != nil {
 		return nil, err
 	}
+	defer registry.removeData(id)
 
 	var (
 		uniqueIdentifier *uint64
 		userData         = unsafe.Pointer(&id)
 	)
-	if err := params.SetVoiceParams(); err != nil {
+	if err := params.setVoiceParamsLocked(); err != nil {
 		return nil, err
 	}
 
 	//set call back
-	SetSynthCallback(C.processSamples)
-	if err := SetVoiceByName(voice.Name); err != nil {
+	C.espeak_SetSynthCallback((*C.t_espeak_callback)(C.processSamples))
+	if err := setVoiceByNameLocked(voice.Name); err != nil {
 		return nil, err
 	}
 
-	if err := Synth(
+	if err := synthLocked(
 		text,
 		CharsAuto|EndPause,
 		0,
@@ -860,11 +965,10 @@ func GenSamples(text string, voice *Voice, params *Parameters) ([]int16, error) 
 		userData); err != nil {
 		return nil, err
 	}
-	if err := Synchronize(); err != nil {
+	if err := synchronizeLocked(); err != nil {
 		return nil, err
 	}
 	data := registry.getData(id)
-	defer registry.removeData(id)
 
 	return *data, nil
 }
